@@ -4,6 +4,18 @@ export type Variable = CamsVariable | Era5Variable;
 export type Aggregate = "hourly" | "daily" | "monthly" | "annual" | "area_hourly" | "area_daily" | "area_monthly" | "diurnal" | "exceedance" | "percentile";
 /** A row from a CSV query result — keys depend on aggregate mode and variables. */
 export type Row = Record<string, string | number>;
+/** Metadata returned alongside query rows. */
+export interface QueryMeta {
+    credits_used: number;
+    credits_remaining: number;
+    tiles_scanned: number;
+    query_time_ms: number;
+}
+/** Full result from a query call: rows + billing metadata. */
+export interface QueryResult {
+    rows: Row[];
+    meta: QueryMeta;
+}
 export interface QueryOptions {
     /** ``[lat_min, lat_max]`` bounding box or a single number for a point query. */
     lat: number | [number, number];
@@ -65,11 +77,18 @@ export declare class JisktaClient {
     private readonly maxRetries;
     constructor(apiKey: string, options?: ClientOptions);
     /**
-     * Query climate data and return an array of row objects.
+     * Query climate data and return rows with billing metadata in one call.
+     *
+     * ```ts
+     * const { rows, meta } = await client.query({ ... });
+     * console.log(rows[0]);
+     * // { lat: 48.85, lon: 2.35, year_month: "2023-01", no2_mean: 12.3 }
+     * console.log(meta.credits_remaining); // e.g. 6492
+     * ```
      *
      * Columns vary by aggregate mode:
-     * - `daily`  → `{ lat, lon, date, no2_mean, … }`
-     * - `monthly` → `{ lat, lon, year_month, no2_mean, … }`
+     * - `daily`      → `{ lat, lon, date, no2_mean, … }`
+     * - `monthly`    → `{ lat, lon, year_month, no2_mean, … }`
      * - `exceedance` → `{ lat, lon, hours_above, total_hours, pct_above }`
      *
      * @throws {AuthError} Invalid API key.
@@ -77,17 +96,18 @@ export declare class JisktaClient {
      * @throws {RateLimitError} Server overloaded; retry after backoff.
      * @throws {JisktaError} Any other API error.
      */
-    query(options: QueryOptions): Promise<Row[]>;
+    query(options: QueryOptions): Promise<QueryResult>;
     /**
      * Return raw summary statistics without parsing rows.
      * Uses `format=stats` — cheapest format, no CSV output.
      */
     stats(options: StatsOptions): Promise<Record<string, unknown>>;
     /**
-     * Return current credit balance.
-     * @throws {Error} Not yet implemented — check https://jiskta.com/dashboard
+     * Return current credit balance with a minimal stats call (costs 0 credits
+     * if the query matches no tiles — pass a tiny 1°×1° bbox that has data).
+     * For production use, prefer reading `meta.credits_remaining` from `query()`.
      */
-    credits(): never;
+    credits(): Promise<number>;
     private _get;
 }
 //# sourceMappingURL=client.d.ts.map

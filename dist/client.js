@@ -40,11 +40,18 @@ class JisktaClient {
         this.maxRetries = options.maxRetries ?? 3;
     }
     /**
-     * Query climate data and return an array of row objects.
+     * Query climate data and return rows with billing metadata in one call.
+     *
+     * ```ts
+     * const { rows, meta } = await client.query({ ... });
+     * console.log(rows[0]);
+     * // { lat: 48.85, lon: 2.35, year_month: "2023-01", no2_mean: 12.3 }
+     * console.log(meta.credits_remaining); // e.g. 6492
+     * ```
      *
      * Columns vary by aggregate mode:
-     * - `daily`  → `{ lat, lon, date, no2_mean, … }`
-     * - `monthly` → `{ lat, lon, year_month, no2_mean, … }`
+     * - `daily`      → `{ lat, lon, date, no2_mean, … }`
+     * - `monthly`    → `{ lat, lon, year_month, no2_mean, … }`
      * - `exceedance` → `{ lat, lon, hours_above, total_hours, pct_above }`
      *
      * @throws {AuthError} Invalid API key.
@@ -62,7 +69,7 @@ class JisktaClient {
             aggregate,
         };
         if (typeof lat === "number" && typeof lon === "number") {
-            // Point query — API snaps to nearest 0.1° grid cell
+            // Point query — API snaps to nearest grid cell
             params.lat = String(lat);
             params.lon = String(lon);
         }
@@ -84,9 +91,14 @@ class JisktaClient {
         }
         const data = await this._get("/api/v1/climate/query", params);
         const csv = data.output ?? "";
-        if (!csv.trim())
-            return [];
-        return parseCsv(csv);
+        const rows = csv.trim() ? parseCsv(csv) : [];
+        const meta = {
+            credits_used: Number(data.credits_used ?? 0),
+            credits_remaining: Number(data.credits_remaining ?? 0),
+            tiles_scanned: Number(data.tiles_scanned ?? 0),
+            query_time_ms: Number(data.query_time_ms ?? 0),
+        };
+        return { rows, meta };
     }
     /**
      * Return raw summary statistics without parsing rows.
@@ -108,12 +120,19 @@ class JisktaClient {
         });
     }
     /**
-     * Return current credit balance.
-     * @throws {Error} Not yet implemented — check https://jiskta.com/dashboard
+     * Return current credit balance with a minimal stats call (costs 0 credits
+     * if the query matches no tiles — pass a tiny 1°×1° bbox that has data).
+     * For production use, prefer reading `meta.credits_remaining` from `query()`.
      */
-    credits() {
-        throw new Error("A dedicated /me endpoint is not yet available. " +
-            "Check your balance at https://jiskta.com/dashboard");
+    async credits() {
+        const data = await this.stats({
+            lat: [48.8, 48.9],
+            lon: [2.3, 2.4],
+            start: "2023-01",
+            end: "2023-01",
+            variables: ["no2"],
+        });
+        return Number(data.credits_remaining ?? 0);
     }
     // ── Internal ─────────────────────────────────────────────────────────────
     async _get(path, params) {

@@ -12,7 +12,7 @@
  *
  * const client = new JisktaClient("sk_live_...");
  *
- * const rows = await client.query({
+ * const { rows, meta } = await client.query({
  *   lat: [48.0, 49.0],
  *   lon: [2.0, 3.0],
  *   start: "2023-01",
@@ -20,6 +20,7 @@
  *   variables: ["no2", "pm2p5"],
  * });
  * console.log(rows[0]);
+ * console.log(meta.credits_remaining);
  * ```
  */
 Object.defineProperty(exports, "__esModule", { value: true });

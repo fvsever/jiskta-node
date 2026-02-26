@@ -35,7 +35,7 @@ afterEach(() => nock.cleanAll());
 test("query returns array of row objects", async () => {
   nock(API).get("/api/v1/climate/query").query(true).reply(200, successReply(NO2_CSV));
   const client = new JisktaClient(KEY);
-  const rows = await client.query({
+  const { rows } = await client.query({
     lat: [48.7, 49.0],
     lon: [2.2, 2.5],
     start: "2023-01",
@@ -43,6 +43,16 @@ test("query returns array of row objects", async () => {
   });
   expect(rows).toHaveLength(2);
   expect(rows[0]).toHaveProperty("no2_mean", 12.3);
+});
+
+test("query returns meta with credits_remaining", async () => {
+  nock(API).get("/api/v1/climate/query").query(true).reply(200, successReply(NO2_CSV, 3));
+  const { rows, meta } = await new JisktaClient(KEY).query({
+    lat: [48.7, 49.0], lon: [2.2, 2.5], start: "2023-01", end: "2023-01",
+  });
+  expect(rows).toHaveLength(2);
+  expect(meta.credits_used).toBe(3);
+  expect(meta.credits_remaining).toBe(999);
 });
 
 test("query sends variables= param (not pollutants=)", async () => {
@@ -73,7 +83,7 @@ test("query default variable is no2", async () => {
 test("empty output returns empty array", async () => {
   nock(API).get("/api/v1/climate/query").query(true)
     .reply(200, { status: "success", output: "", credits_used: 1, credits_remaining: 998 });
-  const rows = await new JisktaClient(KEY).query({ lat: [48.7, 49.0], lon: [2.2, 2.5], start: "2023-01", end: "2023-01" });
+  const { rows } = await new JisktaClient(KEY).query({ lat: [48.7, 49.0], lon: [2.2, 2.5], start: "2023-01", end: "2023-01" });
   expect(rows).toHaveLength(0);
 });
 
@@ -103,7 +113,7 @@ test("two CAMS variables return columnar rows with two value columns", async () 
     .query((q) => { capturedQuery = q as Record<string, string>; return true; })
     .reply(200, successReply(MULTI_CSV, 2));
 
-  const rows = await new JisktaClient(KEY).query({
+  const { rows } = await new JisktaClient(KEY).query({
     lat: [48.7, 49.0], lon: [2.2, 2.5], start: "2023-01", end: "2023-01",
     variables: ["no2", "pm2p5"],
   });
@@ -121,7 +131,7 @@ test("ERA5 variable query returns t2m_mean column", async () => {
     .query((q) => { capturedQuery = q as Record<string, string>; return true; })
     .reply(200, successReply(ERA5_CSV));
 
-  const rows = await new JisktaClient(KEY).query({
+  const { rows } = await new JisktaClient(KEY).query({
     lat: [48.7, 49.0], lon: [2.2, 2.5], start: "2023-01", end: "2023-01",
     variables: ["t2m"],
   });
@@ -132,7 +142,7 @@ test("ERA5 variable query returns t2m_mean column", async () => {
 
 test("cross-dataset CAMS + ERA5 variables return columnar output", async () => {
   nock(API).get("/api/v1/climate/query").query(true).reply(200, successReply(CROSS_CSV, 2));
-  const rows = await new JisktaClient(KEY).query({
+  const { rows } = await new JisktaClient(KEY).query({
     lat: [48.7, 49.0], lon: [2.2, 2.5], start: "2023-01", end: "2023-01",
     variables: ["no2", "t2m"],
   });
@@ -147,7 +157,7 @@ test("multiple ERA5 variables sent comma-separated", async () => {
     .query((q) => { capturedQuery = q as Record<string, string>; return true; })
     .reply(200, successReply("lat,lon,date,u10_mean,v10_mean\n48.75,2.25,2023-01-01,2.1,-0.5\n", 2));
 
-  const rows = await new JisktaClient(KEY).query({
+  const { rows } = await new JisktaClient(KEY).query({
     lat: [48.7, 49.0], lon: [2.2, 2.5], start: "2023-01", end: "2023-01",
     variables: ["u10", "v10"],
   });
@@ -201,7 +211,7 @@ test("threshold query sets aggregate=exceedance", async () => {
     .query((q) => { capturedQuery = q as Record<string, string>; return true; })
     .reply(200, successReply("lat,lon,hours_above,total_hours,pct_above\n48.75,2.25,12,744,1.6\n"));
 
-  const rows = await new JisktaClient(KEY).query({
+  const { rows } = await new JisktaClient(KEY).query({
     lat: [48.7, 49.0], lon: [2.2, 2.5], start: "2023-01", end: "2023-01",
     variables: ["no2"], threshold: 40.0,
   });
@@ -260,8 +270,19 @@ test("missing apiKey throws Error", () => {
   expect(() => new JisktaClient("")).toThrow("apiKey is required");
 });
 
-test("credits() throws not-implemented error", () => {
-  expect(() => new JisktaClient(KEY).credits()).toThrow(/not yet available/);
+test("credits() returns a number", async () => {
+  nock(API).get("/api/v1/climate/query").query(true).reply(200, {
+    status: "success",
+    credits_used: 1,
+    credits_remaining: 6492,
+    tiles_scanned: 1,
+    query_time_ms: 5,
+    format: "stats",
+    output: "Rows matched: 0\nMin: n/a\nMax: n/a\nAverage: n/a",
+  });
+  const balance = await new JisktaClient(KEY).credits();
+  expect(typeof balance).toBe("number");
+  expect(balance).toBe(6492);
 });
 
 // ── CSV parsing edge cases ────────────────────────────────────────────────────
@@ -269,7 +290,7 @@ test("credits() throws not-implemented error", () => {
 test("numeric columns are parsed as numbers, string columns stay as strings", async () => {
   const csv = "lat,lon,year_month,no2_mean\n48.75,2.25,2023-01,14.5\n";
   nock(API).get("/api/v1/climate/query").query(true).reply(200, successReply(csv));
-  const rows = await new JisktaClient(KEY).query({ lat: [48.7, 49.0], lon: [2.2, 2.5], start: "2023-01", end: "2023-01", aggregate: "monthly" });
+  const { rows } = await new JisktaClient(KEY).query({ lat: [48.7, 49.0], lon: [2.2, 2.5], start: "2023-01", end: "2023-01", aggregate: "monthly" });
   expect(typeof rows[0].lat).toBe("number");
   expect(typeof rows[0].year_month).toBe("string");
   expect(rows[0].no2_mean).toBeCloseTo(14.5);
