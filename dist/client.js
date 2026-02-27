@@ -283,7 +283,6 @@ class JisktaClient {
         for (const [k, v] of Object.entries(params))
             url.searchParams.set(k, v);
         let delay = 500;
-        let lastErr;
         for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
             if (attempt > 0)
                 await sleep(delay);
@@ -294,7 +293,6 @@ class JisktaClient {
                 ({ body: responseBody, statusCode } = await httpGet(url.toString(), { "X-API-Key": this.apiKey }, this.timeout));
             }
             catch (err) {
-                lastErr = err;
                 if (attempt < this.maxRetries)
                     continue;
                 throw new errors_js_1.JisktaError(`Network error: ${err.message}`);

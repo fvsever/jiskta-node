@@ -475,7 +475,6 @@ export class JisktaClient {
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
 
     let delay = 500;
-    let lastErr: Error | undefined;
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       if (attempt > 0) await sleep(delay);
@@ -491,7 +490,6 @@ export class JisktaClient {
           this.timeout
         ));
       } catch (err) {
-        lastErr = err as Error;
         if (attempt < this.maxRetries) continue;
         throw new JisktaError(`Network error: ${(err as Error).message}`);
       }
