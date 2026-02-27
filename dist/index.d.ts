@@ -23,6 +23,6 @@
  * ```
  */
 export { JisktaClient } from "./client.js";
-export type { ClientOptions, QueryOptions, QueryResult, QueryMeta, StatsOptions, Row, Variable, CamsVariable, Era5Variable, Aggregate, } from "./client.js";
+export type { ClientOptions, QueryOptions, QueryResult, QueryMeta, QueryWithMaskOptions, StatsOptions, Row, Variable, CamsVariable, Era5Variable, Aggregate, } from "./client.js";
 export { JisktaError, AuthError, InsufficientCreditsError, RateLimitError, } from "./errors.js";
 //# sourceMappingURL=index.d.ts.map

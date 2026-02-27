@@ -29,6 +29,7 @@ export type {
   QueryOptions,
   QueryResult,
   QueryMeta,
+  QueryWithMaskOptions,
   StatsOptions,
   Row,
   Variable,
