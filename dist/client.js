@@ -216,6 +216,67 @@ class JisktaClient {
         });
         return Number(data.credits_remaining ?? 0);
     }
+    /**
+     * Look up the NUTS3 administrative region for a geographic point.
+     *
+     * @example
+     * ```ts
+     * const region = await client.enrich({ lat: 48.85, lon: 2.35 });
+     * console.log(region.nuts3_id);   // "FR101"
+     * console.log(region.nuts3_name); // "Paris"
+     * ```
+     *
+     * @param lat  Latitude (decimal degrees, WGS-84)
+     * @param lon  Longitude (decimal degrees, WGS-84)
+     */
+    async enrich({ lat, lon }) {
+        const data = await this._get("/api/v1/enrich", {
+            lat: String(lat),
+            lon: String(lon),
+        });
+        return data;
+    }
+    /**
+     * Aggregate raster climate data to NUTS3 administrative regions (spatial join).
+     *
+     * For each NUTS3 region in the bounding box, computes the mean of each raster
+     * variable across the grid cells within that region. Optionally computes
+     * cross-dataset statistics (correlations, top-N, etc.) across all regions.
+     *
+     * @example
+     * ```ts
+     * const result = await client.link({
+     *   lat_min: 45, lat_max: 51, lon_min: -5, lon_max: 9,
+     *   start: "2022-01-01", end: "2022-12-31",
+     *   datasets: [
+     *     { name: "no2",  source: "cams_no2"   },
+     *     { name: "pm25", source: "cams_pm2p5" },
+     *   ],
+     *   compute: [
+     *     { op: "mean", input: "no2",  output: "no2_mean"  },
+     *     { op: "pearson_r", x: "no2", y: "pm25", output: "r", include_n: true },
+     *   ],
+     * });
+     * console.log(result.n_units);   // 255
+     * console.log(result.no2_mean);  // 9.62 (µg/m³ average across all NUTS3 units)
+     * console.log(result.r);         // { r: 0.553, r2: 0.306, n: 255 }
+     * // Sort units by NO2 descending:
+     * result.units.sort((a, b) => (b.no2 as number) - (a.no2 as number));
+     * ```
+     */
+    async link(options) {
+        const { lat_min, lat_max, lon_min, lon_max, start, end, datasets, resolution = "nuts3", compute } = options;
+        const body = {
+            bbox: { lat_min, lat_max, lon_min, lon_max },
+            time_range: { start, end },
+            resolution,
+            datasets,
+        };
+        if (compute?.length)
+            body.compute = compute;
+        const data = await this._post("/api/v1/link", body);
+        return data;
+    }
     // ── Internal ─────────────────────────────────────────────────────────────
     async _get(path, params) {
         const url = new url_1.URL(this.baseUrl + path);

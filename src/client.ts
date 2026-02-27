@@ -125,6 +125,68 @@ export interface ClientOptions {
   maxRetries?: number;
 }
 
+/** Result of an enrich() call — NUTS3 region metadata for a point. */
+export interface EnrichResult {
+  status: string;
+  nuts3_id: string;
+  nuts3_name: string;
+  country: string;
+  lat: number;
+  lon: number;
+}
+
+/** A single NUTS3 unit in a link() response. */
+export interface LinkUnit {
+  nuts3_id:   string;
+  nuts3_name: string;
+  country:    string;
+  n_cells:    number;
+  [dataset: string]: string | number;
+}
+
+/** Options for link(). */
+export interface LinkOptions {
+  /** Bounding box. */
+  lat_min: number; lat_max: number; lon_min: number; lon_max: number;
+  /** Start date — "YYYY-MM-DD" or "YYYY-MM". */
+  start: string;
+  /** End date — "YYYY-MM-DD" or "YYYY-MM". */
+  end: string;
+  /**
+   * Raster datasets to load. Each entry has:
+   * - `name`: your alias (used in compute ops)
+   * - `source`: one of cams_no2, cams_pm2p5, cams_pm10, cams_o3,
+   *   era5_t2m, era5_blh, era5_tp, era5_u10, era5_v10
+   */
+  datasets: Array<{ name: string; source: string; time_range?: { start: string; end: string } }>;
+  /** Spatial resolution: "nuts3" (default) | "country" | "cell". */
+  resolution?: "nuts3" | "country" | "cell";
+  /**
+   * Cross-dataset compute operations. Each entry:
+   * - `op`: "mean" | "sum" | "min" | "max" | "count" | "pearson_r" | "top_n"
+   * - `input` (or `value`): dataset name for scalar ops
+   * - `x`, `y`: dataset names for pearson_r
+   * - `output`: key name in response
+   * - `include_n`: include sample size for pearson_r
+   * - `n`, `direction`: for top_n
+   */
+  compute?: Array<Record<string, unknown>>;
+}
+
+/** Result of a link() call. */
+export interface LinkResult {
+  status:             string;
+  query_time_ms:      number;
+  credits_used:       number;
+  credits_remaining:  number;
+  n_units:            number;
+  spatial_resolution: string;
+  n_raster_cols:      number;
+  units:              LinkUnit[];
+  /** Scalar/object results from compute ops (keys match `output` field in each op). */
+  [computeOutput: string]: unknown;
+}
+
 /**
  * Client for the Jiskta Climate Data API.
  *
@@ -336,6 +398,71 @@ export class JisktaClient {
       variables: ["no2"],
     });
     return Number(data.credits_remaining ?? 0);
+  }
+
+  /**
+   * Look up the NUTS3 administrative region for a geographic point.
+   *
+   * @example
+   * ```ts
+   * const region = await client.enrich({ lat: 48.85, lon: 2.35 });
+   * console.log(region.nuts3_id);   // "FR101"
+   * console.log(region.nuts3_name); // "Paris"
+   * ```
+   *
+   * @param lat  Latitude (decimal degrees, WGS-84)
+   * @param lon  Longitude (decimal degrees, WGS-84)
+   */
+  async enrich({ lat, lon }: { lat: number; lon: number }): Promise<EnrichResult> {
+    const data = await this._get("/api/v1/enrich", {
+      lat: String(lat),
+      lon: String(lon),
+    });
+    return data as unknown as EnrichResult;
+  }
+
+  /**
+   * Aggregate raster climate data to NUTS3 administrative regions (spatial join).
+   *
+   * For each NUTS3 region in the bounding box, computes the mean of each raster
+   * variable across the grid cells within that region. Optionally computes
+   * cross-dataset statistics (correlations, top-N, etc.) across all regions.
+   *
+   * @example
+   * ```ts
+   * const result = await client.link({
+   *   lat_min: 45, lat_max: 51, lon_min: -5, lon_max: 9,
+   *   start: "2022-01-01", end: "2022-12-31",
+   *   datasets: [
+   *     { name: "no2",  source: "cams_no2"   },
+   *     { name: "pm25", source: "cams_pm2p5" },
+   *   ],
+   *   compute: [
+   *     { op: "mean", input: "no2",  output: "no2_mean"  },
+   *     { op: "pearson_r", x: "no2", y: "pm25", output: "r", include_n: true },
+   *   ],
+   * });
+   * console.log(result.n_units);   // 255
+   * console.log(result.no2_mean);  // 9.62 (µg/m³ average across all NUTS3 units)
+   * console.log(result.r);         // { r: 0.553, r2: 0.306, n: 255 }
+   * // Sort units by NO2 descending:
+   * result.units.sort((a, b) => (b.no2 as number) - (a.no2 as number));
+   * ```
+   */
+  async link(options: LinkOptions): Promise<LinkResult> {
+    const { lat_min, lat_max, lon_min, lon_max, start, end,
+            datasets, resolution = "nuts3", compute } = options;
+
+    const body: Record<string, unknown> = {
+      bbox:       { lat_min, lat_max, lon_min, lon_max },
+      time_range: { start, end },
+      resolution,
+      datasets,
+    };
+    if (compute?.length) body.compute = compute;
+
+    const data = await this._post("/api/v1/link", body);
+    return data as LinkResult;
   }
 
   // ── Internal ─────────────────────────────────────────────────────────────
