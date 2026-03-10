@@ -265,15 +265,28 @@ class JisktaClient {
      * ```
      */
     async link(options) {
-        const { lat_min, lat_max, lon_min, lon_max, start, end, datasets, resolution = "nuts3", compute } = options;
+        const { lat_min, lat_max, lon_min, lon_max, area, start, end, datasets, resolution = "nuts3", compute, per_year, output_format } = options;
+        if (!area && (lat_min === undefined || lat_max === undefined ||
+            lon_min === undefined || lon_max === undefined)) {
+            throw new Error("Either area or all of lat_min/lat_max/lon_min/lon_max must be provided.");
+        }
         const body = {
-            bbox: { lat_min, lat_max, lon_min, lon_max },
             time_range: { start, end },
             resolution,
             datasets,
         };
+        if (area) {
+            body.area = area;
+        }
+        else {
+            body.bbox = { lat_min, lat_max, lon_min, lon_max };
+        }
         if (compute?.length)
             body.compute = compute;
+        if (per_year)
+            body.per_year = true;
+        if (output_format)
+            body.output_format = output_format;
         const data = await this._post("/api/v1/link", body);
         return data;
     }

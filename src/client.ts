@@ -146,8 +146,16 @@ export interface LinkUnit {
 
 /** Options for link(). */
 export interface LinkOptions {
-  /** Bounding box. */
-  lat_min: number; lat_max: number; lon_min: number; lon_max: number;
+  /** Bounding box lat extent. Optional when `area` is provided. */
+  lat_min?: number; lat_max?: number;
+  /** Bounding box lon extent. Optional when `area` is provided. */
+  lon_min?: number; lon_max?: number;
+  /**
+   * Named area shortcut (e.g. `"paris"`, `"france"`, `"india"`).
+   * Also accepts OSM relation IDs: `"osm:71525"`.
+   * Replaces lat_min/lat_max/lon_min/lon_max when provided.
+   */
+  area?: string;
   /** Start date — "YYYY-MM-DD" or "YYYY-MM". */
   start: string;
   /** End date — "YYYY-MM-DD" or "YYYY-MM". */
@@ -171,6 +179,13 @@ export interface LinkOptions {
    * - `n`, `direction`: for top_n
    */
   compute?: Array<Record<string, unknown>>;
+  /**
+   * If true, run one query per calendar year in [start, end] and return
+   * a year-indexed result. Defaults to CSV output when true.
+   */
+  per_year?: boolean;
+  /** Output format: "json" (default) | "csv" | "geojson". */
+  output_format?: "json" | "csv" | "geojson";
 }
 
 /** Result of a link() call. */
@@ -449,17 +464,29 @@ export class JisktaClient {
    * result.units.sort((a, b) => (b.no2 as number) - (a.no2 as number));
    * ```
    */
-  async link(options: LinkOptions): Promise<LinkResult> {
-    const { lat_min, lat_max, lon_min, lon_max, start, end,
-            datasets, resolution = "nuts3", compute } = options;
+  async link(options: LinkOptions): Promise<LinkResult | string> {
+    const { lat_min, lat_max, lon_min, lon_max, area, start, end,
+            datasets, resolution = "nuts3", compute,
+            per_year, output_format } = options;
+
+    if (!area && (lat_min === undefined || lat_max === undefined ||
+                  lon_min === undefined || lon_max === undefined)) {
+      throw new Error("Either area or all of lat_min/lat_max/lon_min/lon_max must be provided.");
+    }
 
     const body: Record<string, unknown> = {
-      bbox:       { lat_min, lat_max, lon_min, lon_max },
       time_range: { start, end },
       resolution,
       datasets,
     };
+    if (area) {
+      body.area = area;
+    } else {
+      body.bbox = { lat_min, lat_max, lon_min, lon_max };
+    }
     if (compute?.length) body.compute = compute;
+    if (per_year) body.per_year = true;
+    if (output_format) body.output_format = output_format;
 
     const data = await this._post("/api/v1/link", body);
     return data as LinkResult;

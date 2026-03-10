@@ -107,11 +107,18 @@ export interface LinkUnit {
 }
 /** Options for link(). */
 export interface LinkOptions {
-    /** Bounding box. */
-    lat_min: number;
-    lat_max: number;
-    lon_min: number;
-    lon_max: number;
+    /** Bounding box lat extent. Optional when `area` is provided. */
+    lat_min?: number;
+    lat_max?: number;
+    /** Bounding box lon extent. Optional when `area` is provided. */
+    lon_min?: number;
+    lon_max?: number;
+    /**
+     * Named area shortcut (e.g. `"paris"`, `"france"`, `"india"`).
+     * Also accepts OSM relation IDs: `"osm:71525"`.
+     * Replaces lat_min/lat_max/lon_min/lon_max when provided.
+     */
+    area?: string;
     /** Start date — "YYYY-MM-DD" or "YYYY-MM". */
     start: string;
     /** End date — "YYYY-MM-DD" or "YYYY-MM". */
@@ -142,6 +149,13 @@ export interface LinkOptions {
      * - `n`, `direction`: for top_n
      */
     compute?: Array<Record<string, unknown>>;
+    /**
+     * If true, run one query per calendar year in [start, end] and return
+     * a year-indexed result. Defaults to CSV output when true.
+     */
+    per_year?: boolean;
+    /** Output format: "json" (default) | "csv" | "geojson". */
+    output_format?: "json" | "csv" | "geojson";
 }
 /** Result of a link() call. */
 export interface LinkResult {
@@ -276,7 +290,7 @@ export declare class JisktaClient {
      * result.units.sort((a, b) => (b.no2 as number) - (a.no2 as number));
      * ```
      */
-    link(options: LinkOptions): Promise<LinkResult>;
+    link(options: LinkOptions): Promise<LinkResult | string>;
     private _get;
     private _post;
 }
