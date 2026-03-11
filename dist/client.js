@@ -290,6 +290,65 @@ class JisktaClient {
         const data = await this._post("/api/v1/link", body);
         return data;
     }
+    /**
+     * Search named areas for use with the `area=` query parameter.
+     *
+     * @example
+     * ```ts
+     * const result = await client.areas({ q: "paris" });
+     * console.log(result.areas[0]); // { id: 123, name: "Paris", ... }
+     * ```
+     */
+    async areas(options) {
+        const params = {};
+        if (options.q !== undefined) {
+            params.q = options.q;
+        }
+        else if (options.bbox !== undefined) {
+            params.bbox = options.bbox.join(",");
+        }
+        else if (options.id !== undefined) {
+            params.id = String(options.id);
+        }
+        else if (options.osm !== undefined) {
+            params.osm = String(options.osm);
+        }
+        else {
+            throw new Error("One of q, bbox, id, or osm must be provided.");
+        }
+        const data = await this._get("/api/v1/areas", params);
+        return data;
+    }
+    /**
+     * Return live data coverage for all datasets.
+     * No authentication required.
+     *
+     * @example
+     * ```ts
+     * const cov = await client.coverage();
+     * console.log(cov.coverage.nitrogen_dioxide["2023-01"].type); // "reanalysis"
+     * ```
+     */
+    async coverage() {
+        const data = await this._get("/api/v1/coverage", {});
+        return data;
+    }
+    /**
+     * Redeem a voucher code to add free credits to your account.
+     *
+     * @example
+     * ```ts
+     * const result = await client.redeem("WELCOME-2025");
+     * console.log(result.credits_added);     // 500
+     * console.log(result.credits_remaining); // 505
+     * ```
+     *
+     * @throws {JisktaError} 404 if code is invalid, 409 if already redeemed, 410 if expired.
+     */
+    async redeem(code) {
+        const data = await this._post("/api/v1/redeem", { code });
+        return data;
+    }
     // ── Internal ─────────────────────────────────────────────────────────────
     async _get(path, params) {
         const url = new url_1.URL(this.baseUrl + path);

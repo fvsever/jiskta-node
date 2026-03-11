@@ -126,8 +126,11 @@ export interface LinkOptions {
     /**
      * Raster datasets to load. Each entry has:
      * - `name`: your alias (used in compute ops)
-     * - `source`: one of cams_no2, cams_pm2p5, cams_pm10, cams_o3,
-     *   era5_t2m, era5_blh, era5_tp, era5_u10, era5_v10
+     * - `source`: one of `cams_no2`, `cams_pm2p5`, `cams_pm10`, `cams_o3`,
+     *   `era5_t2m`, `era5_blh`, `era5_tp`, `era5_u10`, `era5_v10`,
+     *   `viirs_radiance`,
+     *   `wb_gdp_usd`, `wb_gdp_per_capita`, `wb_gdp_growth`, `wb_inflation_cpi`,
+     *   `wb_co2_per_capita`, `wb_population`, `wb_exports_pct`, `wb_urban_pct`
      */
     datasets: Array<{
         name: string;
@@ -169,6 +172,53 @@ export interface LinkResult {
     units: LinkUnit[];
     /** Scalar/object results from compute ops (keys match `output` field in each op). */
     [computeOutput: string]: unknown;
+}
+/** Options for areas(). At least one of q, bbox, id, or osm must be provided. */
+export interface AreasOptions {
+    /** Name search (e.g. `"paris"`). Returns first match. */
+    q?: string;
+    /** `[lat_min, lat_max, lon_min, lon_max]` — returns up to 50 overlapping areas. */
+    bbox?: [number, number, number, number];
+    /** Direct area ID lookup. */
+    id?: number;
+    /** OSM relation ID lookup (e.g. `54094` for Paris). */
+    osm?: number;
+}
+/** A single area entry from areas(). */
+export interface AreaEntry {
+    id: number;
+    name: string;
+    admin_level: number;
+    parent: string;
+    osm_id: number;
+    lat_min: number;
+    lat_max: number;
+    lon_min: number;
+    lon_max: number;
+}
+/** Result from areas(). */
+export interface AreasResult {
+    status: string;
+    source: string;
+    count: number;
+    areas: AreaEntry[];
+}
+/** Result from coverage(). */
+export interface CoverageResult {
+    status: string;
+    validated_lag_months?: number;
+    interim_lag_months?: number;
+    coverage: Record<string, Record<string, {
+        type: string;
+        downloaded_at: string;
+        size_mb: number;
+    }>>;
+}
+/** Result from redeem(). */
+export interface RedeemResult {
+    credits_added: number;
+    credits_remaining: number;
+    description: string;
 }
 /**
  * Client for the Jiskta Climate Data API.
@@ -291,6 +341,40 @@ export declare class JisktaClient {
      * ```
      */
     link(options: LinkOptions): Promise<LinkResult | string>;
+    /**
+     * Search named areas for use with the `area=` query parameter.
+     *
+     * @example
+     * ```ts
+     * const result = await client.areas({ q: "paris" });
+     * console.log(result.areas[0]); // { id: 123, name: "Paris", ... }
+     * ```
+     */
+    areas(options: AreasOptions): Promise<AreasResult>;
+    /**
+     * Return live data coverage for all datasets.
+     * No authentication required.
+     *
+     * @example
+     * ```ts
+     * const cov = await client.coverage();
+     * console.log(cov.coverage.nitrogen_dioxide["2023-01"].type); // "reanalysis"
+     * ```
+     */
+    coverage(): Promise<CoverageResult>;
+    /**
+     * Redeem a voucher code to add free credits to your account.
+     *
+     * @example
+     * ```ts
+     * const result = await client.redeem("WELCOME-2025");
+     * console.log(result.credits_added);     // 500
+     * console.log(result.credits_remaining); // 505
+     * ```
+     *
+     * @throws {JisktaError} 404 if code is invalid, 409 if already redeemed, 410 if expired.
+     */
+    redeem(code: string): Promise<RedeemResult>;
     private _get;
     private _post;
 }
