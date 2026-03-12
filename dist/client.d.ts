@@ -11,10 +11,16 @@ export interface QueryMeta {
     tiles_scanned: number;
     query_time_ms: number;
 }
-/** Full result from a query call: rows + billing metadata. */
+/** Full result from a query call: rows + billing metadata + optional divergence. */
 export interface QueryResult {
     rows: Row[];
     meta: QueryMeta;
+    /**
+     * Satellite-vs-self-reported divergence signal.
+     * Present only when `facilityId` + `aggregate: "trend"` + `variables: ["no2"|"pm2p5"|"pm10"]`
+     * are all used together. `null` if the API did not return a divergence block.
+     */
+    divergence: DivergenceResult | null;
 }
 export interface QueryOptions {
     /** ``[lat_min, lat_max]`` bounding box or single number for point query. Omit when using ``area``. */
@@ -23,6 +29,13 @@ export interface QueryOptions {
     lon?: number | [number, number];
     /** Named area shortcut (e.g. ``"paris"``, ``"belgium"``, ``"france"``). Replaces lat/lon. */
     area?: string;
+    /**
+     * E-PRTR facility ID (`inspire_hash` as string or number).
+     * When provided, the query is snapped to the facility's location.
+     * Combine with `aggregate: "trend"` to get the `divergence` signal in the result.
+     * Use `client.facilities()` to look up IDs.
+     */
+    facilityId?: string | number;
     /** Start date — ``"YYYY-MM-DD"`` or ``"YYYY-MM"``. */
     start: string;
     /** End date — ``"YYYY-MM-DD"`` or ``"YYYY-MM"``. */
@@ -214,11 +227,80 @@ export interface CoverageResult {
         size_mb: number;
     }>>;
 }
-/** Result from redeem(). */
+/** Result of a redeem() call. */
 export interface RedeemResult {
     credits_added: number;
     credits_remaining: number;
     description: string;
+}
+/** One year of reported emissions for a facility. */
+export interface FacilityEmissionYear {
+    year: number;
+    total_kg: number;
+}
+/** Divergence signal: CAMS satellite trend vs E-PRTR self-reported emissions. */
+export interface DivergenceResult {
+    /** CAMS trend slope in µg/m³/year (r²-weighted mean over grid cells). */
+    cams_slope: number;
+    /** CAMS regression r² — strength of the satellite trend. */
+    cams_r2: number;
+    /** E-PRTR OLS slope in kg/year. */
+    eprtr_slope: number;
+    /** E-PRTR pollutant matched: "nox" | "pm25" | "pm10". */
+    eprtr_pollutant: string;
+    /** E-PRTR regression r² — strength of the self-reported trend. */
+    eprtr_r2: number;
+    /**
+     * Divergence direction:
+     * - `consistent`        — both signals trend the same way.
+     * - `overstated`        — CAMS↓ but E-PRTR↑ (satellite sees improvement, company reports growth).
+     * - `understated`       — CAMS↑ but E-PRTR↓ (satellite sees worsening, company reports improvement).
+     * - `insufficient_data` — r² < 0.1 or fewer than 5 E-PRTR years in window.
+     */
+    direction: "consistent" | "overstated" | "understated" | "insufficient_data";
+    /** Confidence score = sqrt(cams_r2 × eprtr_r2). Range 0–1. */
+    score: number;
+}
+/** A single E-PRTR industrial facility. */
+export interface FacilityResult {
+    inspire_hash: number;
+    name: string;
+    country: string;
+    lat: number;
+    lon: number;
+    sector: string;
+    /** Annual NOₓ emissions. Present when `emissions=true`. */
+    nox_kg?: FacilityEmissionYear[];
+    /** Annual PM10 emissions. Present when `emissions=true`. */
+    pm10_kg?: FacilityEmissionYear[];
+    /** Annual PM2.5 emissions. Present when `emissions=true`. */
+    pm25_kg?: FacilityEmissionYear[];
+    /** Annual CO₂ emissions. Present when `emissions=true`. */
+    co2_kg?: FacilityEmissionYear[];
+}
+/** Options for facilities(). At least one search criterion must be provided. */
+export interface FacilitiesOptions {
+    /** Centre latitude for radius search. Requires `lon` and `radiusKm`. */
+    lat?: number;
+    /** Centre longitude for radius search. Requires `lat` and `radiusKm`. */
+    lon?: number;
+    /** Search radius in km around lat/lon. Max 500. */
+    radiusKm?: number;
+    /** Bounding box search. */
+    latMin?: number;
+    latMax?: number;
+    lonMin?: number;
+    lonMax?: number;
+    /** Name substring search (e.g. `"arcelormittal"`). */
+    q?: string;
+    /** ISO-2 country filter (e.g. `"BE"`). Optional alongside `q`. */
+    country?: string;
+    /** PRTR sector substring filter (e.g. `"metals"`). */
+    sector?: string;
+    /** Direct lookup by `inspire_hash`. */
+    id?: string | number;
+    /** Include annual emission series (`nox_kg`, `pm10_kg`, etc.). Default: false. */
+    emissions?: boolean;
 }
 /**
  * Client for the Jiskta Climate Data API.
@@ -375,6 +457,35 @@ export declare class JisktaClient {
      * @throws {JisktaError} 404 if code is invalid, 409 if already redeemed, 410 if expired.
      */
     redeem(code: string): Promise<RedeemResult>;
+    /**
+     * Search E-PRTR industrial facilities.
+     *
+     * Returns facilities matching location, bounding box, name query, or direct ID.
+     * At least one of `lat`/`lon`/`radiusKm`, bbox, `q`, or `id` must be provided.
+     *
+     * @example
+     * ```ts
+     * // Facilities within 10 km of Ghent
+     * const facs = await client.facilities({ lat: 51.05, lon: 3.72, radiusKm: 10 });
+     * console.log(facs[0].name); // "ArcelorMittal Belgium"
+     *
+     * // Name search with emissions data
+     * const facs = await client.facilities({ q: "arcelormittal", country: "BE", emissions: true });
+     * console.log(facs[0].nox_kg?.[0]); // { year: 2013, total_kg: 45000000 }
+     *
+     * // Direct lookup
+     * const [fac] = await client.facilities({ id: 1986304935103026946 });
+     * const { rows, meta, divergence } = await client.query({
+     *   facilityId: fac.inspire_hash,
+     *   start: "2015-01", end: "2023-12",
+     *   variables: ["no2"], aggregate: "trend",
+     * });
+     * console.log(divergence?.direction); // "consistent" | "overstated" | ...
+     * ```
+     *
+     * @throws {JisktaError} If no search criterion is provided or the API returns an error.
+     */
+    facilities(options: FacilitiesOptions): Promise<FacilityResult[]>;
     private _get;
     private _post;
 }

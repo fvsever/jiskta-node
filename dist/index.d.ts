@@ -23,6 +23,6 @@
  * ```
  */
 export { JisktaClient } from "./client.js";
-export type { ClientOptions, QueryOptions, QueryResult, QueryMeta, QueryWithMaskOptions, StatsOptions, EnrichResult, LinkOptions, LinkResult, LinkUnit, AreasOptions, AreasResult, AreaEntry, CoverageResult, RedeemResult, Row, Variable, CamsVariable, Era5Variable, Aggregate, } from "./client.js";
+export type { ClientOptions, QueryOptions, QueryResult, QueryMeta, QueryWithMaskOptions, StatsOptions, EnrichResult, LinkOptions, LinkResult, LinkUnit, AreasOptions, AreasResult, AreaEntry, CoverageResult, RedeemResult, DivergenceResult, FacilityResult, FacilityEmissionYear, FacilitiesOptions, Row, Variable, CamsVariable, Era5Variable, Aggregate, } from "./client.js";
 export { JisktaError, AuthError, InsufficientCreditsError, RateLimitError, } from "./errors.js";
 //# sourceMappingURL=index.d.ts.map

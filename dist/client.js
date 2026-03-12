@@ -60,9 +60,9 @@ class JisktaClient {
      * @throws {JisktaError} Any other API error.
      */
     async query(options) {
-        const { lat, lon, area, start, end, variables = ["no2"], aggregate = "daily", threshold, percentile, sortBy, sortDir, unit, round, dryRun, missingNull, includePolygon, } = options;
-        if (!area && lat === undefined)
-            throw new Error("Either lat/lon or area is required");
+        const { lat, lon, area, facilityId, start, end, variables = ["no2"], aggregate = "daily", threshold, percentile, sortBy, sortDir, unit, round, dryRun, missingNull, includePolygon, } = options;
+        if (!area && facilityId === undefined && lat === undefined)
+            throw new Error("Either lat/lon, area, or facilityId is required");
         const params = {
             time_start: start,
             time_end: end,
@@ -72,6 +72,9 @@ class JisktaClient {
         };
         if (area) {
             params.area = area;
+        }
+        else if (facilityId !== undefined) {
+            params.facility_id = String(facilityId);
         }
         else if (typeof lat === "number" && typeof lon === "number") {
             // Point query — API snaps to nearest grid cell
@@ -117,7 +120,8 @@ class JisktaClient {
             tiles_scanned: Number(data.tiles_scanned ?? 0),
             query_time_ms: Number(data.query_time_ms ?? 0),
         };
-        return { rows, meta };
+        const divergence = data.divergence ?? null;
+        return { rows, meta, divergence };
     }
     /**
      * Return raw summary statistics without parsing rows.
@@ -199,7 +203,7 @@ class JisktaClient {
             tiles_scanned: Number(data.tiles_scanned ?? 0),
             query_time_ms: Number(data.query_time_ms ?? 0),
         };
-        return { rows, meta };
+        return { rows, meta, divergence: null };
     }
     /**
      * Return current credit balance with a minimal stats call (costs 0 credits
@@ -348,6 +352,67 @@ class JisktaClient {
     async redeem(code) {
         const data = await this._post("/api/v1/redeem", { code });
         return data;
+    }
+    /**
+     * Search E-PRTR industrial facilities.
+     *
+     * Returns facilities matching location, bounding box, name query, or direct ID.
+     * At least one of `lat`/`lon`/`radiusKm`, bbox, `q`, or `id` must be provided.
+     *
+     * @example
+     * ```ts
+     * // Facilities within 10 km of Ghent
+     * const facs = await client.facilities({ lat: 51.05, lon: 3.72, radiusKm: 10 });
+     * console.log(facs[0].name); // "ArcelorMittal Belgium"
+     *
+     * // Name search with emissions data
+     * const facs = await client.facilities({ q: "arcelormittal", country: "BE", emissions: true });
+     * console.log(facs[0].nox_kg?.[0]); // { year: 2013, total_kg: 45000000 }
+     *
+     * // Direct lookup
+     * const [fac] = await client.facilities({ id: 1986304935103026946 });
+     * const { rows, meta, divergence } = await client.query({
+     *   facilityId: fac.inspire_hash,
+     *   start: "2015-01", end: "2023-12",
+     *   variables: ["no2"], aggregate: "trend",
+     * });
+     * console.log(divergence?.direction); // "consistent" | "overstated" | ...
+     * ```
+     *
+     * @throws {JisktaError} If no search criterion is provided or the API returns an error.
+     */
+    async facilities(options) {
+        const { lat, lon, radiusKm, latMin, latMax, lonMin, lonMax, q, country, sector, id, emissions } = options;
+        const params = {};
+        if (id !== undefined) {
+            params.id = String(id);
+        }
+        else if (lat !== undefined && lon !== undefined) {
+            params.lat = String(lat);
+            params.lon = String(lon);
+            if (radiusKm !== undefined)
+                params.radius_km = String(radiusKm);
+        }
+        else if (latMin !== undefined) {
+            params.lat_min = String(latMin);
+            params.lat_max = String(latMax);
+            params.lon_min = String(lonMin);
+            params.lon_max = String(lonMax);
+        }
+        else if (q !== undefined) {
+            params.q = q;
+        }
+        else {
+            throw new Error("Provide one of: id, lat/lon[/radiusKm], latMin/latMax/lonMin/lonMax, or q.");
+        }
+        if (country)
+            params.country = country;
+        if (sector)
+            params.sector = sector;
+        if (emissions)
+            params.emissions = "true";
+        const data = await this._get("/api/v1/facilities", params);
+        return (Array.isArray(data) ? data : (data.facilities ?? []));
     }
     // ── Internal ─────────────────────────────────────────────────────────────
     async _get(path, params) {
