@@ -12,7 +12,16 @@ const DEFAULT_BASE_URL = "https://api.jiskta.com";
 
 export type CamsVariable = "no2" | "pm2p5" | "pm10" | "o3";
 export type Era5Variable = "t2m" | "u10" | "v10" | "blh" | "tp" | "wind_speed" | "wind_dir";
-export type Variable = CamsVariable | Era5Variable;
+/** All queryable variables including VIIRS, GHSL, MODIS and ODIAC datasets. */
+export type Variable =
+  | CamsVariable
+  | Era5Variable
+  | "viirs_radiance"
+  | "ghsl_pop"
+  | "ghsl_built"
+  | "ghsl_built_nres"
+  | "modis_urban"
+  | "odiac_co2";
 
 export type Aggregate =
   | "hourly"
@@ -93,6 +102,8 @@ export interface QueryOptions {
   dryRun?: boolean;
   /** Emit empty string for cells with no data instead of omitting them. */
   missingNull?: boolean;
+  /** Omit the CSV header row. */
+  noHeader?: boolean;
   /** Include GeoJSON area_polygon in response for ``area`` queries. */
   includePolygon?: boolean;
 }
@@ -138,14 +149,32 @@ export interface ClientOptions {
   maxRetries?: number;
 }
 
-/** Result of an enrich() call — NUTS3 region metadata for a point. */
+/** Result of an enrich() call — NUTS3 region metadata and optional scores for a point. */
 export interface EnrichResult {
   status: string;
-  nuts3_id: string;
-  nuts3_name: string;
-  country: string;
+  nuts3_id?: string;
+  nuts3_name?: string;
+  country?: string;
   lat: number;
   lon: number;
+  /** WRI Aqueduct 4.0 water risk scores (when server is configured with WATER_STRESS_INDEX). */
+  water_stress?: {
+    bws: number | null; bws_label: string;
+    bwd: number | null; bwd_label: string;
+    rfr: number | null; rfr_label: string;
+    drr: number | null; drr_label: string;
+    source: string;
+  };
+  /** Nearest E-PRTR industrial facility within 5 km (when EPRTR_DIR is configured). */
+  nearest_facility?: {
+    inspire_hash: number;
+    name: string;
+    country: string;
+    sector: string;
+    lat: number;
+    lon: number;
+    distance_km: number;
+  };
 }
 
 /** A single NUTS3 unit in a link() response. */
@@ -333,8 +362,50 @@ export interface FacilitiesOptions {
   id?: string | number;
   /** Include annual emission series (`nox_kg`, `pm10_kg`, etc.). Default: false. */
   emissions?: boolean;
+  /** Maximum number of facilities to return. */
+  max?: number;
 }
 
+
+/** Options for waterRisk(). */
+export interface WaterRiskOptions {
+  /** Bounding box min latitude. */
+  latMin: number;
+  /** Bounding box max latitude. */
+  latMax: number;
+  /** Bounding box min longitude. */
+  lonMin: number;
+  /** Bounding box max longitude. */
+  lonMax: number;
+  /** Output format: ``"json"`` (default) or ``"csv"``. */
+  format?: "json" | "csv";
+  /** Include text label strings alongside scores. */
+  labels?: boolean;
+  /** Comma-separated indicator filter: ``"bws"``, ``"bwd"``, ``"rfr"``, ``"drr"``. */
+  vars?: string;
+}
+
+/** A single 0.1° grid cell in a waterRisk() response. */
+export interface WaterRiskCell {
+  lat: number;
+  lon: number;
+  bws: number | null;
+  bwd: number | null;
+  rfr: number | null;
+  drr: number | null;
+  bws_label?: string;
+  bwd_label?: string;
+  rfr_label?: string;
+  drr_label?: string;
+}
+
+/** Result of a waterRisk() call. */
+export interface WaterRiskResult {
+  status: string;
+  source: string;
+  n_cells: number;
+  cells: WaterRiskCell[];
+}
 
 /**
  * Client for the Jiskta Climate Data API.
@@ -398,7 +469,7 @@ export class JisktaClient {
       variables = ["no2"],
       aggregate = "daily",
       threshold, percentile,
-      sortBy, sortDir, unit, round, dryRun, missingNull, includePolygon,
+      sortBy, sortDir, unit, round, dryRun, missingNull, noHeader, includePolygon,
     } = options;
 
     if (!area && facilityId === undefined && lat === undefined)
@@ -437,6 +508,7 @@ export class JisktaClient {
     if (round !== undefined) params.round = String(round);
     if (dryRun) params.dry_run = "true";
     if (missingNull) params.missing = "null";
+    if (noHeader) params.no_header = "true";
     if (includePolygon) params.include_polygon = "true";
 
     const data = await this._get("/api/v1/climate/query", params);
@@ -566,11 +638,13 @@ export class JisktaClient {
    * @param lat  Latitude (decimal degrees, WGS-84)
    * @param lon  Longitude (decimal degrees, WGS-84)
    */
-  async enrich({ lat, lon }: { lat: number; lon: number }): Promise<EnrichResult> {
-    const data = await this._get("/api/v1/enrich", {
+  async enrich({ lat, lon, year }: { lat: number; lon: number; year?: number }): Promise<EnrichResult> {
+    const params: Record<string, string> = {
       lat: String(lat),
       lon: String(lon),
-    });
+    };
+    if (year !== undefined) params.year = String(year);
+    const data = await this._get("/api/v1/enrich", params);
     return data as unknown as EnrichResult;
   }
 
@@ -718,7 +792,7 @@ export class JisktaClient {
    */
   async facilities(options: FacilitiesOptions): Promise<FacilityResult[]> {
     const { lat, lon, radiusKm, latMin, latMax, lonMin, lonMax,
-            q, country, sector, id, emissions } = options;
+            q, country, sector, id, emissions, max } = options;
 
     const params: Record<string, string> = {};
 
@@ -742,9 +816,60 @@ export class JisktaClient {
     if (country) params.country = country;
     if (sector)  params.sector  = sector;
     if (emissions) params.emissions = "true";
+    if (max !== undefined) params.max = String(max);
 
     const data = await this._get("/api/v1/facilities", params);
     return (Array.isArray(data) ? data : (data.facilities ?? [])) as FacilityResult[];
+  }
+
+  // ── Utilities ────────────────────────────────────────────────────────────
+
+  /**
+   * Check API server health. No authentication required.
+   *
+   * @example
+   * ```ts
+   * const { status } = await client.health();
+   * console.log(status); // "healthy"
+   * ```
+   */
+  async health(): Promise<{ status: string; auth_enabled: boolean }> {
+    const resp = await fetch(`${this.baseUrl}/health`);
+    if (!resp.ok) throw new JisktaError(`Health check failed: ${resp.status}`, resp.status);
+    return resp.json() as Promise<{ status: string; auth_enabled: boolean }>;
+  }
+
+  /**
+   * Return WRI Aqueduct 4.0 water risk scores for every 0.1° cell in a bounding box.
+   *
+   * Covers CSRD ESRS E3-1 §27 (water stress / water depletion) and ESRS E3-3 §38
+   * (riverine flood risk / drought risk). Credits: 0 (static dataset).
+   *
+   * Scores: 1=Low, 2=Low-Medium, 3=Medium-High, 4=High, 5=Extremely High. null=no data.
+   *
+   * @example
+   * ```ts
+   * const result = await client.waterRisk({
+   *   latMin: 48, latMax: 52, lonMin: 0, lonMax: 5,
+   *   labels: true,
+   * });
+   * console.log(result.cells[0]);
+   * // { lat: 48.05, lon: 0.05, bws: 2, bws_label: "Low-Medium", ... }
+   * ```
+   */
+  async waterRisk(options: WaterRiskOptions): Promise<WaterRiskResult> {
+    const { latMin, latMax, lonMin, lonMax, format = "json", labels, vars } = options;
+    const params: Record<string, string> = {
+      lat_min: String(latMin),
+      lat_max: String(latMax),
+      lon_min: String(lonMin),
+      lon_max: String(lonMax),
+      format,
+    };
+    if (labels) params.labels = "true";
+    if (vars)   params.vars   = vars;
+    const data = await this._get("/api/v1/water-risk", params);
+    return data as unknown as WaterRiskResult;
   }
 
   // ── Internal ─────────────────────────────────────────────────────────────

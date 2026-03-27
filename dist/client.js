@@ -60,7 +60,7 @@ class JisktaClient {
      * @throws {JisktaError} Any other API error.
      */
     async query(options) {
-        const { lat, lon, area, facilityId, start, end, variables = ["no2"], aggregate = "daily", threshold, percentile, sortBy, sortDir, unit, round, dryRun, missingNull, includePolygon, } = options;
+        const { lat, lon, area, facilityId, start, end, variables = ["no2"], aggregate = "daily", threshold, percentile, sortBy, sortDir, unit, round, dryRun, missingNull, noHeader, includePolygon, } = options;
         if (!area && facilityId === undefined && lat === undefined)
             throw new Error("Either lat/lon, area, or facilityId is required");
         const params = {
@@ -109,6 +109,8 @@ class JisktaClient {
             params.dry_run = "true";
         if (missingNull)
             params.missing = "null";
+        if (noHeader)
+            params.no_header = "true";
         if (includePolygon)
             params.include_polygon = "true";
         const data = await this._get("/api/v1/climate/query", params);
@@ -233,11 +235,14 @@ class JisktaClient {
      * @param lat  Latitude (decimal degrees, WGS-84)
      * @param lon  Longitude (decimal degrees, WGS-84)
      */
-    async enrich({ lat, lon }) {
-        const data = await this._get("/api/v1/enrich", {
+    async enrich({ lat, lon, year }) {
+        const params = {
             lat: String(lat),
             lon: String(lon),
-        });
+        };
+        if (year !== undefined)
+            params.year = String(year);
+        const data = await this._get("/api/v1/enrich", params);
         return data;
     }
     /**
@@ -382,7 +387,7 @@ class JisktaClient {
      * @throws {JisktaError} If no search criterion is provided or the API returns an error.
      */
     async facilities(options) {
-        const { lat, lon, radiusKm, latMin, latMax, lonMin, lonMax, q, country, sector, id, emissions } = options;
+        const { lat, lon, radiusKm, latMin, latMax, lonMin, lonMax, q, country, sector, id, emissions, max } = options;
         const params = {};
         if (id !== undefined) {
             params.id = String(id);
@@ -411,8 +416,60 @@ class JisktaClient {
             params.sector = sector;
         if (emissions)
             params.emissions = "true";
+        if (max !== undefined)
+            params.max = String(max);
         const data = await this._get("/api/v1/facilities", params);
         return (Array.isArray(data) ? data : (data.facilities ?? []));
+    }
+    // ── Utilities ────────────────────────────────────────────────────────────
+    /**
+     * Check API server health. No authentication required.
+     *
+     * @example
+     * ```ts
+     * const { status } = await client.health();
+     * console.log(status); // "healthy"
+     * ```
+     */
+    async health() {
+        const resp = await fetch(`${this.baseUrl}/health`);
+        if (!resp.ok)
+            throw new errors_js_1.JisktaError(`Health check failed: ${resp.status}`, resp.status);
+        return resp.json();
+    }
+    /**
+     * Return WRI Aqueduct 4.0 water risk scores for every 0.1° cell in a bounding box.
+     *
+     * Covers CSRD ESRS E3-1 §27 (water stress / water depletion) and ESRS E3-3 §38
+     * (riverine flood risk / drought risk). Credits: 0 (static dataset).
+     *
+     * Scores: 1=Low, 2=Low-Medium, 3=Medium-High, 4=High, 5=Extremely High. null=no data.
+     *
+     * @example
+     * ```ts
+     * const result = await client.waterRisk({
+     *   latMin: 48, latMax: 52, lonMin: 0, lonMax: 5,
+     *   labels: true,
+     * });
+     * console.log(result.cells[0]);
+     * // { lat: 48.05, lon: 0.05, bws: 2, bws_label: "Low-Medium", ... }
+     * ```
+     */
+    async waterRisk(options) {
+        const { latMin, latMax, lonMin, lonMax, format = "json", labels, vars } = options;
+        const params = {
+            lat_min: String(latMin),
+            lat_max: String(latMax),
+            lon_min: String(lonMin),
+            lon_max: String(lonMax),
+            format,
+        };
+        if (labels)
+            params.labels = "true";
+        if (vars)
+            params.vars = vars;
+        const data = await this._get("/api/v1/water-risk", params);
+        return data;
     }
     // ── Internal ─────────────────────────────────────────────────────────────
     async _get(path, params) {
