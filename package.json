@@ -38,10 +38,10 @@
   "homepage": "https://jiskta.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fvsever/jiskta-node.git"
+    "url": "git+https://github.com/jiskta/jiskta-node.git"
   },
   "bugs": {
-    "url": "https://github.com/fvsever/jiskta-node/issues"
+    "url": "https://github.com/jiskta/jiskta-node/issues"
   },
   "dependencies": {},
   "devDependencies": {
