@@ -11,7 +11,7 @@ import {
 const DEFAULT_BASE_URL = "https://api.jiskta.com";
 
 export type CamsVariable = "no2" | "pm2p5" | "pm10" | "o3";
-export type Era5Variable = "t2m" | "u10" | "v10" | "blh" | "tp" | "wind_speed" | "wind_dir";
+export type Era5Variable = "t2m" | "u10" | "v10" | "blh" | "tp";
 /** All queryable variables including VIIRS, GHSL, MODIS and ODIAC datasets. */
 export type Variable =
   | CamsVariable

@@ -1,5 +1,5 @@
 export type CamsVariable = "no2" | "pm2p5" | "pm10" | "o3";
-export type Era5Variable = "t2m" | "u10" | "v10" | "blh" | "tp" | "wind_speed" | "wind_dir";
+export type Era5Variable = "t2m" | "u10" | "v10" | "blh" | "tp";
 /** All queryable variables including VIIRS, GHSL, MODIS and ODIAC datasets. */
 export type Variable = CamsVariable | Era5Variable | "viirs_radiance" | "ghsl_pop" | "ghsl_built" | "ghsl_built_nres" | "modis_urban" | "odiac_co2";
 export type Aggregate = "hourly" | "daily" | "monthly" | "annual" | "area_hourly" | "area_daily" | "area_monthly" | "diurnal" | "exceedance" | "percentile" | "seasonal" | "trend" | "max" | "min" | "cumulative" | "stddev";
