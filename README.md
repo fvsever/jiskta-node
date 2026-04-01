@@ -10,15 +10,33 @@ npm install jiskta
 
 No runtime dependencies — uses Node.js built-in `https`.
 
+## Authentication
+
+Get your API key from [jiskta.com/dashboard](https://jiskta.com/dashboard). You can pass it directly or set the `JISKTA_API_KEY` environment variable:
+
+```bash
+export JISKTA_API_KEY="sk_live_..."
+```
+
+```ts
+import { JisktaClient } from "jiskta";
+
+// From env var (recommended):
+const client = new JisktaClient();
+
+// Or explicitly:
+const client = new JisktaClient("sk_live_...");
+```
+
 ## Quick start
 
 ```ts
 import { JisktaClient } from "jiskta";
 
-const client = new JisktaClient("sk_live_...");
+const client = new JisktaClient(); // reads JISKTA_API_KEY env var
 
 // Daily NO₂ and PM2.5 over Paris in 2023
-const rows = await client.query({
+const { rows } = await client.query({
   lat: [48.7, 49.0],
   lon: [2.2, 2.5],
   start: "2023-01",
@@ -42,7 +60,7 @@ const { JisktaClient } = require("jiskta");
 Pass a single number for `lat`/`lon` to query a single grid cell (~0.1° resolution):
 
 ```ts
-const rows = await client.query({
+const { rows } = await client.query({
   lat: 48.85,   // Central Paris — snaps to nearest 0.1° grid cell
   lon: 2.35,
   start: "2023-01",
@@ -55,7 +73,7 @@ const rows = await client.query({
 ## All options
 
 ```ts
-const rows = await client.query({
+const { rows, meta } = await client.query({
   lat: [lat_min, lat_max],   // bounding box  OR  single number for point query
   lon: [lon_min, lon_max],
   start: "YYYY-MM-DD",       // or "YYYY-MM"
@@ -67,6 +85,7 @@ const rows = await client.query({
   threshold: 40.0,           // µg/m³  — enables exceedance mode
   percentile: 95,            // 0–100  — enables percentile mode
 });
+console.log(meta.credits_remaining);
 ```
 
 ## Summary statistics
@@ -88,7 +107,7 @@ console.log(result.output);
 Count hours above a threshold (e.g. WHO NO₂ guideline of 25 µg/m³):
 
 ```ts
-const rows = await client.query({
+const { rows } = await client.query({
   lat: [48.7, 49.0],
   lon: [2.2, 2.5],
   start: "2023-01",
@@ -111,7 +130,7 @@ import {
 } from "jiskta";
 
 try {
-  const rows = await client.query({ ... });
+  const { rows } = await client.query({ ... });
 } catch (err) {
   if (err instanceof AuthError) {
     console.error("Invalid API key");

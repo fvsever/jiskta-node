@@ -434,9 +434,10 @@ export class JisktaClient {
   private readonly timeout: number;
   private readonly maxRetries: number;
 
-  constructor(apiKey: string, options: ClientOptions = {}) {
-    if (!apiKey) throw new Error("apiKey is required");
-    this.apiKey = apiKey;
+  constructor(apiKey?: string, options: ClientOptions = {}) {
+    const resolvedKey = apiKey ?? (typeof process !== "undefined" ? process.env.JISKTA_API_KEY : undefined) ?? "";
+    if (!resolvedKey) throw new Error("apiKey is required (or set JISKTA_API_KEY env var)");
+    this.apiKey = resolvedKey;
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
     this.timeout = options.timeout ?? 60_000;
     this.maxRetries = options.maxRetries ?? 3;
@@ -819,6 +820,10 @@ export class JisktaClient {
     if (max !== undefined) params.max = String(max);
 
     const data = await this._get("/api/v1/facilities", params);
+    // id= mode: API returns a single facility object (not an array)
+    if (!Array.isArray(data) && data && typeof data === "object" && "inspire_hash" in data) {
+      return [data] as unknown as FacilityResult[];
+    }
     return (Array.isArray(data) ? data : (data.facilities ?? [])) as FacilityResult[];
   }
 

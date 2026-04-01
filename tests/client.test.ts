@@ -270,6 +270,28 @@ test("missing apiKey throws Error", () => {
   expect(() => new JisktaClient("")).toThrow("apiKey is required");
 });
 
+test("JISKTA_API_KEY env var is used when no key is passed", async () => {
+  const old = process.env.JISKTA_API_KEY;
+  process.env.JISKTA_API_KEY = KEY;
+  try {
+    nock(API).get("/api/v1/climate/query").query(true).reply(200, successReply(NO2_CSV));
+    const client = new JisktaClient();
+    const { rows } = await client.query({ lat: [48.7, 49.0], lon: [2.2, 2.5], start: "2023-01", end: "2023-01" });
+    expect(rows).toHaveLength(2);
+  } finally {
+    if (old === undefined) delete process.env.JISKTA_API_KEY;
+    else process.env.JISKTA_API_KEY = old;
+  }
+});
+
+test("facilities id= mode wraps single-object response in array", async () => {
+  const singleFacility = { inspire_hash: 123456, name: "Test Plant", lat: 51.1, lon: 4.4, country: "BE", sector: "Energy" };
+  nock(API).get("/api/v1/facilities").query(true).reply(200, singleFacility);
+  const facs = await new JisktaClient(KEY).facilities({ id: 123456 });
+  expect(facs).toHaveLength(1);
+  expect(facs[0].name).toBe("Test Plant");
+});
+
 test("credits() returns a number", async () => {
   nock(API).get("/api/v1/climate/query").query(true).reply(200, {
     status: "success",

@@ -392,7 +392,7 @@ export declare class JisktaClient {
     private readonly baseUrl;
     private readonly timeout;
     private readonly maxRetries;
-    constructor(apiKey: string, options?: ClientOptions);
+    constructor(apiKey?: string, options?: ClientOptions);
     /**
      * Query climate data and return rows with billing metadata in one call.
      *
